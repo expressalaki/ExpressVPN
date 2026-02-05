@@ -16,8 +16,8 @@ def extract_configs_from_url(channel_username):
         messages = soup.find_all('div', class_='tgme_widget_message_text')
         
         configs = []
-        # الگو برای تشخیص پروتکل‌های مختلف
-        pattern = r"(vless|vmess|trojan|ss|shadowsocks)://[^\s<]+"
+        # اصلاح شده: اضافه کردن ?: داخل پرانتز برای گرفتن کل متن
+        pattern = r"(?:vless|vmess|trojan|ss|shadowsocks)://[^\s<]+"
         for msg in messages:
             found = re.findall(pattern, msg.get_text())
             configs.extend(found)
@@ -30,7 +30,7 @@ def run():
     with open('channels.txt', 'r') as f:
         channels = [line.strip() for line in f if line.strip()]
 
-    # 2. خواندن دیتای قبلی (زمان|کانفیگ)
+    # 2. خواندن دیتای قبلی
     existing_data = []
     if os.path.exists('data.temp'):
         with open('data.temp', 'r') as f:
@@ -45,21 +45,20 @@ def run():
         found = extract_configs_from_url(ch)
         for c in found:
             if c not in all_known_configs:
-                # اضافه کردن به اول لیست (جدیدترین‌ها)
                 new_entries.insert(0, [str(now.timestamp()), c])
                 all_known_configs.append(c)
 
-    # 4. ترکیب و حذف قدیمی‌ها (بیش از 24 ساعت)
+    # 4. ترکیب و حذف قدیمی‌ها
     combined = new_entries + existing_data
     final_data = []
     for ts, cfg in combined:
         if now.timestamp() - float(ts) < (EXPIRY_HOURS * 3600):
             final_data.append([ts, cfg])
 
-    # 5. خروجی نهایی برای نمایش کاربر
+    # 5. خروجی نهایی (Configs.txt)
     with open('configs.txt', 'w') as f:
         for _, cfg in final_data:
-            f.write(cfg + "\n\n") # دو اینتر برای فاصله کامل
+            f.write(cfg + "\n\n")
 
     # 6. ذخیره فایل سیستمی
     with open('data.temp', 'w') as f:
