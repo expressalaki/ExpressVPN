@@ -7,8 +7,8 @@ from datetime import datetime, timezone, timedelta
 # =============================================================
 #  تنظیمات اصلی
 # =============================================================
-EXPIRY_HOURS = 24      # کانفیگ‌ها بعد از 24 ساعت از فایل حذف شوند
-SEARCH_LIMIT_HOURS = 1 # فقط پیام‌های 1 ساعت اخیر کانال بررسی شوند
+EXPIRY_HOURS = 24      # حذف کانفیگ‌ها بعد از 24 ساعت
+SEARCH_LIMIT_HOURS = 1 # بررسی پیام‌های 1 ساعت اخیر
 # =============================================================
 
 def get_messages_within_limit(channel_username):
@@ -18,49 +18,48 @@ def get_messages_within_limit(channel_username):
         if response.status_code != 200: return []
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # پیدا کردن بلوک‌های پیام (شامل تاریخ و متن)
         message_wraps = soup.find_all('div', class_='tgme_widget_message_wrap')
         
         valid_configs = []
         
-        # الگوی سخت‌گیرانه: فقط حروف انگلیسی، اعداد و علائم استاندارد URL
-        # به محض رسیدن به فاصله یا حروف فارسی، متوقف می‌شود.
-        pattern = r"(?:vless|vmess|trojan|ss|shadowsocks)://[a-zA-Z0-9\-_@.:?#%&=+]+"
+        # اصلاح مهم Regex:
+        # اضافه کردن / برای مسیرها (path)
+        # اضافه کردن [] برای آدرس‌های IPv6
+        pattern = r"(?:vless|vmess|trojan|ss|shadowsocks)://[a-zA-Z0-9\-_@.:?#%&=+/\[\]]+"
         
-        # زمان فعلی به صورت UTC (چون تلگرام زمان‌ها را UTC می‌زند)
         now_utc = datetime.now(timezone.utc)
         
         for wrap in message_wraps:
             try:
-                # 1. استخراج زمان پیام
+                # 1. بررسی زمان پیام
                 time_tag = wrap.find('time')
                 if not time_tag: continue
                 
-                # فرمت زمان تلگرام: 2023-10-25T10:30:00+00:00
                 msg_time_str = time_tag['datetime']
                 msg_time = datetime.fromisoformat(msg_time_str)
                 
-                # 2. بررسی شرط 1 ساعت (اگر پیام قدیمی است، رد شو)
+                # اگر پیام قدیمی‌تر از حد مجاز است، بررسی نکن
                 if (now_utc - msg_time).total_seconds() > (SEARCH_LIMIT_HOURS * 3600):
                     continue
 
-                # 3. استخراج متن پیام
+                # 2. استخراج و تمیزسازی متن
                 msg_text_div = wrap.find('div', class_='tgme_widget_message_text')
                 if not msg_text_div: continue
 
-                # ترفند مهم: تبدیل <br> به فاصله برای جلوگیری از چسبیدن خطوط
+                # تبدیل <br> به فاصله برای جدا شدن خطوط چسبیده
                 for br in msg_text_div.find_all('br'):
                     br.replace_with(' ')
                 
                 text = msg_text_div.get_text()
                 
-                # 4. استخراج کانفیگ‌ها با الگوی جدید
+                # 3. پیدا کردن کانفیگ‌ها
                 found = re.findall(pattern, text)
                 for item in found:
                     clean_config = item.strip()
-                    # فیلتر نهایی برای اطمینان از سالم بودن لینک
-                    if len(clean_config) > 10 and clean_config not in valid_configs:
+                    
+                    # اصلاح مهم: کاهش محدودیت طول به 7 کاراکتر
+                    # ss://a (حداقل طول منطقی)
+                    if len(clean_config) > 7 and clean_config not in valid_configs:
                         valid_configs.append(clean_config)
                         
             except Exception as e:
@@ -79,7 +78,6 @@ def run():
     with open('channels.txt', 'r') as f:
         channels = [line.strip() for line in f if line.strip()]
 
-    # خواندن دیتابیس موقت
     existing_data = []
     if os.path.exists('data.temp'):
         with open('data.temp', 'r') as f:
@@ -92,7 +90,7 @@ def run():
     new_entries = []
     now = datetime.now().timestamp()
 
-    # فقط پیام‌های جدیدِ 1 ساعت اخیر بررسی می‌شوند
+    # استخراج موارد جدید
     for ch in channels:
         found = get_messages_within_limit(ch)
         for c in found:
@@ -100,22 +98,21 @@ def run():
                 new_entries.insert(0, [str(now), c])
                 all_known_configs.append(c)
 
-    # ترکیب و حذف موارد قدیمی‌تر از 24 ساعت
+    # حذف موارد قدیمی (24 ساعت)
     combined = new_entries + existing_data
     final_data = []
     
     for ts, cfg in combined:
-        # محاسبه عمر کانفیگ
         if now - float(ts) < (EXPIRY_HOURS * 3600):
             final_data.append([ts, cfg])
 
-    # ذخیره فایل نهایی تمیز
+    # ذخیره فایل کانفیگ
     with open('configs.txt', 'w', encoding='utf-8') as f:
         for _, cfg in final_data:
             f.write(cfg)
-            f.write("\n\n") # دو خط فاصله واقعی
+            f.write("\n\n")
 
-    # آپدیت دیتابیس
+    # ذخیره دیتابیس
     with open('data.temp', 'w', encoding='utf-8') as f:
         for ts, cfg in final_data:
             f.write(f"{ts}|{cfg}\n")
