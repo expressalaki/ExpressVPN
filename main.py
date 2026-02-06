@@ -14,7 +14,7 @@ PINNED_CONFIGS = [
 
 EXPIRY_HOURS = 24       
 SEARCH_LIMIT_HOURS = 1  
-ROTATION_LIMIT = 65     # هر عددی خواستی اینجا بذار
+ROTATION_LIMIT = 150     # هر عددی خواستی اینجا بذار
 # =============================================================
 
 def extract_configs_logic(msg_div):
