@@ -11,19 +11,22 @@ EXPIRY_HOURS = 24      # زمان حذف کانفیگ‌های قدیمی (سا�
 SEARCH_LIMIT_HOURS = 1 # بررسی پیام‌های X ساعت اخیر کانال
 # =============================================================
 
-def extract_configs_smart(text):
+def extract_configs_smart(msg_text_div):
     """
-    استخراج کانفیگ‌ها با قوانین:
-    1. توقف در 3 فاصله
-    2. توقف در خط جدید
-    3. توقف در صورت شروع پروتکل جدید
-    4. توقف در انتهای پیام
+    استخراج هوشمند با جایگزینی ایموجی‌ها و اعمال قوانین توقف
     """
+    # 1. تبدیل تگ‌های ایموجی تلگرام به متن واقعی (برای جلوگیری از قطع شدن کانفیگ)
+    for img in msg_text_div.find_all('img', class_='emoji'):
+        if img.has_attr('alt'):
+            img.replace_with(img['alt'])
+    
+    # 2. دریافت متن با حفظ ساختار خطوط
+    text = msg_text_div.get_text(separator="\n")
+    
     configs = []
-    # تعریف پروتکل‌های شروع
     protocols = ['vless://', 'vmess://', 'ss://', 'trojan://', 'shadowsocks://']
     
-    # جدا کردن پیام به خطوط (شرط: توقف در خط بعد)
+    # جدا کردن بر اساس خط (شرط: توقف در خط بعد)
     lines = text.split('\n')
     
     for line in lines:
@@ -32,28 +35,26 @@ def extract_configs_smart(text):
         for proto in protocols:
             for m in re.finditer(re.escape(proto), line):
                 starts.append(m.start())
-        
-        # مرتب کردن نقاط شروع از اول به آخر
         starts.sort()
         
         for i in range(len(starts)):
             start_pos = starts[i]
             
-            # تعیین نقطه پایان احتمالی (شروع کانفیگ بعدی در همان خط)
+            # شرط: توقف در صورت شروع پروتکل جدید در همان خط
             if i + 1 < len(starts):
                 end_pos = starts[i+1]
                 chunk = line[start_pos:end_pos]
             else:
-                # اگر کانفیگ دیگری در این خط نبود، تا آخر خط را بردار
+                # شرط: توقف در اتمام سطر یا اتمام پیام
                 chunk = line[start_pos:]
             
-            # شرط: توقف در 3 فاصله (3 spaces)
-            # اگر در این بخش 3 فاصله پشت سر هم باشد، فقط تا قبل از آن را نگه دار
+            # شرط: توقف در صورت مشاهده 3 فاصله پشت سر هم
             if '   ' in chunk:
                 chunk = chunk.split('   ')[0]
             
             clean_cfg = chunk.strip()
-            if len(clean_cfg) > 10: # فیلتر برای جلوگیری از موارد خیلی کوتاه
+            # فیلتر برای اطمینان از اینکه حداقل طول یک کانفیگ را دارد (مثلاً ss://a)
+            if len(clean_cfg) > 7:
                 configs.append(clean_cfg)
                 
     return configs
@@ -72,22 +73,17 @@ def get_messages_within_limit(channel_username):
         
         for wrap in message_wraps:
             try:
-                # بررسی زمان پیام
                 time_tag = wrap.find('time')
                 if not time_tag: continue
                 msg_time = datetime.fromisoformat(time_tag['datetime'])
                 if (now_utc - msg_time).total_seconds() > (SEARCH_LIMIT_HOURS * 3600):
                     continue
 
-                # استخراج متن پیام
                 msg_text_div = wrap.find('div', class_='tgme_widget_message_text')
                 if not msg_text_div: continue
 
-                # گرفتن متن با حفظ خطوط (separator="\n")
-                raw_text = msg_text_div.get_text(separator="\n")
-                
-                # استخراج با منطق هوشمند
-                configs = extract_configs_smart(raw_text)
+                # فراخوانی تابع استخراج هوشمند با پاس دادن کل المنت HTML
+                configs = extract_configs_smart(msg_text_div)
                 for c in configs:
                     if c not in extracted_configs:
                         extracted_configs.append(c)
@@ -119,16 +115,13 @@ def run():
                 new_entries.insert(0, [str(now), c])
                 all_known_configs.append(c)
 
-    # ترکیب و اعمال انقضا
     combined = new_entries + existing_data
     final_data = [item for item in combined if now - float(item[0]) < (EXPIRY_HOURS * 3600)]
 
-    # خروجی نهایی
     with open('configs.txt', 'w', encoding='utf-8') as f:
         for _, cfg in final_data:
             f.write(cfg + "\n\n")
 
-    # آپدیت دیتابیس موقت
     with open('data.temp', 'w', encoding='utf-8') as f:
         for ts, cfg in final_data:
             f.write(f"{ts}|{cfg}\n")
