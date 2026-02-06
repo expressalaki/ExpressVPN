@@ -35,7 +35,7 @@ def extract_configs_logic(msg_div):
     # دریافت متن تمیز شده
     full_text = html.unescape(msg_div.get_text())
     
-    protocols = ['vless://', 'vmess://', 'trojan://']
+    protocols = ['vless://', 'vmess://', 'trojan://', 'hysteria2://', 'hy2://' ]
     extracted = []
     
     # تقسیم بر اساس خط (قانون توقف در خط بعد)
