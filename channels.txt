@@ -81,3 +81,5 @@ NpvV2rayFilTer
 V2raNG_DA
 V2rayNg_madam
 anty_filter
+xsfilternet
+planB_net
