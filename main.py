@@ -14,7 +14,7 @@ PINNED_CONFIGS = [
 
 EXPIRY_HOURS = 12       
 SEARCH_LIMIT_HOURS = 1  
-ROTATION_LIMIT = 60      # تعداد کانفیگ برای فایل configs.txt
+ROTATION_LIMIT = 65      # تعداد کانفیگ برای فایل configs.txt
 ROTATION_LIMIT_2 = 500   # تعداد کانفیگ برای فایل configs2.txt
 # =============================================================
 
