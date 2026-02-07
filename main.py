@@ -14,7 +14,8 @@ PINNED_CONFIGS = [
 
 EXPIRY_HOURS = 12       
 SEARCH_LIMIT_HOURS = 1  
-ROTATION_LIMIT = 60     # هر عددی خواستی اینجا بذار
+ROTATION_LIMIT = 60      # تعداد کانفیگ برای فایل configs.txt
+ROTATION_LIMIT_2 = 500   # تعداد کانفیگ برای فایل configs2.txt
 # =============================================================
 
 def extract_configs_logic(msg_div):
@@ -26,19 +27,17 @@ def extract_configs_logic(msg_div):
         br.replace_with("\n")
     
     full_text = html.unescape(msg_div.get_text())
-    # ترتیب پروتکل‌ها مهم است: اول بلندترها را چک می‌کنیم
+    # لیست پروتکل‌ها (قابل ویرایش توسط شما)
     protocols = ['vless://', 'vmess://', 'trojan://', 'hysteria2://', 'hy2://']
     extracted = []
     
     lines = full_text.split('\n')
     for line in lines:
-        # پیدا کردن موقعیت تمام پروتکل‌ها
         starts = []
         for proto in protocols:
             for m in re.finditer(re.escape(proto), line):
                 starts.append((m.start(), proto))
         
-        # مرتب‌سازی بر اساس مکان شروع در خط
         starts.sort(key=lambda x: x[0])
         
         for i in range(len(starts)):
@@ -54,7 +53,6 @@ def extract_configs_logic(msg_div):
                 candidate = candidate.split('   ')[0]
             
             final_cfg = candidate.strip()
-            # چک کردن اینکه آیا واقعاً با یکی از پروتکل‌ها شروع می‌شود
             if any(final_cfg.startswith(p) for p in protocols) and len(final_cfg) > 10:
                 extracted.append(final_cfg)
     return extracted
@@ -105,7 +103,6 @@ def run():
     for ch in channels:
         found = get_messages_within_limit(ch)
         for c in found:
-            # جلوگیری از اضافه کردن تکراری به دیتابیس
             if c not in all_known_configs and c not in PINNED_CONFIGS:
                 new_entries.append([str(now), c])
                 all_known_configs.append(c)
@@ -113,7 +110,6 @@ def run():
     combined = existing_data + new_entries
     valid_db_data = [item for item in combined if now - float(item[0]) < (EXPIRY_HOURS * 3600)]
 
-    # منطق چرخش
     current_index = 0
     if os.path.exists('pointer.txt'):
         try:
@@ -122,51 +118,49 @@ def run():
         except: current_index = 0
 
     total_configs = len(valid_db_data)
-    selected_configs = []
+    
+    # منطق استخراج برای فایل اول (configs.txt)
+    selected_1 = []
     next_index = 0
-
     if total_configs > 0:
-        if current_index >= total_configs:
-            current_index = 0
-        
+        if current_index >= total_configs: current_index = 0
         end_index = current_index + ROTATION_LIMIT
         if end_index <= total_configs:
-            batch = valid_db_data[current_index : end_index]
-            selected_configs = [item[1] for item in batch]
+            selected_1 = [item[1] for item in valid_db_data[current_index : end_index]]
             next_index = end_index
         else:
-            batch1 = valid_db_data[current_index : total_configs]
-            remaining = ROTATION_LIMIT - len(batch1)
-            batch2 = valid_db_data[0 : remaining]
-            selected_configs = [item[1] for item in batch1 + batch2]
-            next_index = remaining
-    
-    # حذف تکراری‌های احتمالی در لیست نهایی برای محکم‌کاری
-    final_output_list = []
-    seen = set()
-    
-    # اضافه کردن پین شده‌ها به لیست "دیده شده"
-    for p in PINNED_CONFIGS:
-        seen.add(p)
+            selected_1 = [item[1] for item in valid_db_data[current_index:] + valid_db_data[:ROTATION_LIMIT - (total_configs - current_index)]]
+            next_index = ROTATION_LIMIT - (total_configs - current_index)
 
-    for cfg in selected_configs:
-        if cfg not in seen:
-            final_output_list.append(cfg)
-            seen.add(cfg)
+    # منطق استخراج برای فایل دوم (configs2.txt) - دقیقاً از همان مکان شروع
+    selected_2 = []
+    if total_configs > 0:
+        end_index_2 = current_index + ROTATION_LIMIT_2
+        if end_index_2 <= total_configs:
+            selected_2 = [item[1] for item in valid_db_data[current_index : end_index_2]]
+        else:
+            selected_2 = [item[1] for item in valid_db_data[current_index:] + valid_db_data[:ROTATION_LIMIT_2 - (total_configs - current_index)]]
 
-    # نوشتن فایل خروجی
-    with open('configs.txt', 'w', encoding='utf-8') as f:
-        for pin in PINNED_CONFIGS:
-            f.write(pin + "\n\n")
-        for cfg in final_output_list:
-            f.write(cfg + "\n\n")
+    # تابع داخلی برای حذف تکراری و نوشتن فایل
+    def save_file(filename, config_list):
+        final_list = []
+        seen = set(PINNED_CONFIGS)
+        for cfg in config_list:
+            if cfg not in seen:
+                final_list.append(cfg)
+                seen.add(cfg)
+        with open(filename, 'w', encoding='utf-8') as f:
+            for pin in PINNED_CONFIGS: f.write(pin + "\n\n")
+            for cfg in final_list: f.write(cfg + "\n\n")
 
-    # ذخیره دیتابیس
+    # ذخیره هر دو فایل
+    save_file('configs.txt', selected_1)
+    save_file('configs2.txt', selected_2)
+
+    # ذخیره دیتابیس و پوینتر (پوینتر بر اساس فایل اول حرکت می‌کند تا هماهنگی حفظ شود)
     with open('data.temp', 'w', encoding='utf-8') as f:
         for ts, cfg in valid_db_data:
-            if cfg not in PINNED_CONFIGS:
-                f.write(f"{ts}|{cfg}\n")
-
+            if cfg not in PINNED_CONFIGS: f.write(f"{ts}|{cfg}\n")
     with open('pointer.txt', 'w', encoding='utf-8') as f:
         f.write(str(next_index))
 
